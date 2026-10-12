@@ -1,3 +1,5 @@
 {
-  "CiSuffix": ""
+  "VpcName": "ci-build",
+  "SubnetQualifier": "public",
+  "CiSuffix": "ci"
 }
