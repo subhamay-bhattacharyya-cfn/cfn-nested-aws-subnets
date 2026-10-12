@@ -1,0 +1,333 @@
+AWSTemplateFormatVersion: '2010-09-09'
+
+Description: 'Nested CloudFormation template that creates a set of subnets in an existing VPC, a single route table shared by all of the subnets (named VpcName-Qualifier), and a default route to an Internet Gateway when the qualifier is public'
+
+Metadata:
+  cfn-lint:
+    config:
+      # VpcId defaults to "" and is only used when CiSuffix is empty, where the
+      # VpcIdRequiredWithoutCiSuffix rule forces a valid VPC ID. cfn-lint cannot
+      # see that guard, so it reports the empty default as an invalid VPC ID.
+      ignore_checks:
+        - W1030
+
+Parameters:
+  VpcId:
+    Type: String
+    Default: ""
+    Description: "ID of the existing VPC to create the subnets in. Required when CiSuffix is empty; must be empty when CiSuffix is set (a VPC is created instead)"
+    AllowedPattern: "^(vpc-([0-9a-f]{8}|[0-9a-f]{17}))?$"
+    ConstraintDescription: "Must be empty or a valid VPC ID, e.g. vpc-0123abcd"
+
+  VpcName:
+    Type: String
+    Description: "Value of the VPC Name tag, used as the prefix for the route table name"
+    MinLength: 1
+
+  AvailabilityZones:
+    Type: CommaDelimitedList
+    Default: "us-east-1a,us-east-1b"
+    Description: "Comma-separated list of Availability Zones, one per subnet (e.g. us-east-1a,us-east-1b)"
+
+  SubnetCidrBlocks:
+    Type: CommaDelimitedList
+    Default: "10.0.1.0/24,10.0.2.0/24"
+    Description: "Comma-separated list of IP ranges (CIDRs), one per subnet, in the same order as AvailabilityZones"
+
+  SubnetCount:
+    Type: Number
+    Default: 2
+    Description: "Number of subnets to create (1-6). Must be less than or equal to the number of AZs and CIDRs provided"
+    AllowedValues: [1, 2, 3, 4, 5, 6]
+
+  SubnetQualifier:
+    Type: String
+    Description: "Subnet qualifier. A value of 'public' adds a default route to the Internet Gateway"
+    AllowedValues:
+      - public
+      - application
+      - database
+    ConstraintDescription: "Subnet qualifier must be one of: public, application, database"
+
+  InternetGatewayId:
+    Type: String
+    Default: ""
+    Description: "ID of the Internet Gateway attached to the VPC. Required when SubnetQualifier is public"
+    AllowedPattern: "^(igw-([0-9a-f]{8}|[0-9a-f]{17}))?$"
+    ConstraintDescription: "Must be empty or a valid Internet Gateway ID, e.g. igw-0123abcd"
+
+  CiSuffix:
+    Type: String
+    Default: ""
+    Description: "Optional suffix for CI/CD deployments so that stacks can be deployed uniquely. Leave empty outside CI"
+    MaxLength: 20
+    AllowedPattern: "^[a-z0-9-]*$"
+    ConstraintDescription: "CiSuffix must be empty or lowercase letters, numbers, and hyphens only"
+
+  CiVpcCidrBlock:
+    Type: String
+    Default: "10.0.0.0/16"
+    Description: "CIDR block of the VPC created when CiSuffix is set"
+    AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/(1[6-9]|2[0-8])$"
+    ConstraintDescription: "Must be a valid IPv4 CIDR block between /16 and /28"
+
+Conditions:
+  IsPublic: !Equals [!Ref SubnetQualifier, public]
+
+  HasCiSuffix: !Not [!Equals [!Ref CiSuffix, '']]
+  IsPublicCi: !And [!Condition IsPublic, !Condition HasCiSuffix]
+  IsPublicExisting: !And [!Condition IsPublic, !Not [!Condition HasCiSuffix]]
+
+  CreateSubnet1: !Or
+    - !Equals [!Ref SubnetCount, '1']
+    - !Equals [!Ref SubnetCount, '2']
+    - !Equals [!Ref SubnetCount, '3']
+    - !Equals [!Ref SubnetCount, '4']
+    - !Equals [!Ref SubnetCount, '5']
+    - !Equals [!Ref SubnetCount, '6']
+  CreateSubnet2: !Or
+    - !Equals [!Ref SubnetCount, '2']
+    - !Equals [!Ref SubnetCount, '3']
+    - !Equals [!Ref SubnetCount, '4']
+    - !Equals [!Ref SubnetCount, '5']
+    - !Equals [!Ref SubnetCount, '6']
+  CreateSubnet3: !Or
+    - !Equals [!Ref SubnetCount, '3']
+    - !Equals [!Ref SubnetCount, '4']
+    - !Equals [!Ref SubnetCount, '5']
+    - !Equals [!Ref SubnetCount, '6']
+  CreateSubnet4: !Or
+    - !Equals [!Ref SubnetCount, '4']
+    - !Equals [!Ref SubnetCount, '5']
+    - !Equals [!Ref SubnetCount, '6']
+  CreateSubnet5: !Or
+    - !Equals [!Ref SubnetCount, '5']
+    - !Equals [!Ref SubnetCount, '6']
+  CreateSubnet6: !Equals [!Ref SubnetCount, '6']
+
+Rules:
+  VpcIdRequiredWithoutCiSuffix:
+    RuleCondition: !Equals [!Ref CiSuffix, '']
+    Assertions:
+      - Assert: !Not [!Equals [!Ref VpcId, '']]
+        AssertDescription: "VpcId is required when CiSuffix is empty"
+
+  VpcIdNotAllowedWithCiSuffix:
+    RuleCondition: !Not [!Equals [!Ref CiSuffix, '']]
+    Assertions:
+      - Assert: !Equals [!Ref VpcId, '']
+        AssertDescription: "VpcId must be empty when CiSuffix is set, because a VPC is created for CI"
+
+Resources:
+  # ---------- CI-only VPC, Internet Gateway and attachment ----------
+  CiVpc:
+    Type: AWS::EC2::VPC
+    Condition: HasCiSuffix
+    Properties:
+      CidrBlock: !Ref CiVpcCidrBlock
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref CiSuffix]]
+
+  CiInternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Condition: HasCiSuffix
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref CiSuffix]]
+
+  CiGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Condition: HasCiSuffix
+    Properties:
+      VpcId: !Ref CiVpc
+      InternetGatewayId: !Ref CiInternetGateway
+
+  # ---------- Shared route table (created first) ----------
+  RouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  # Default route to the CI-created Internet Gateway (waits for it to be attached)
+  PublicRouteCi:
+    Type: AWS::EC2::Route
+    Condition: IsPublicCi
+    DependsOn: CiGatewayAttachment
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref CiInternetGateway
+
+  # Default route to the existing Internet Gateway supplied by InternetGatewayId
+  PublicRoute:
+    Type: AWS::EC2::Route
+    Condition: IsPublicExisting
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGatewayId
+
+  # ---------- Subnet 1 ----------
+  Subnet1:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet1
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      CidrBlock: !Select [0, !Ref SubnetCidrBlocks]
+      AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  RouteTableAssociation1:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet1
+    Properties:
+      SubnetId: !Ref Subnet1
+      RouteTableId: !Ref RouteTable
+
+  # ---------- Subnet 2 ----------
+  Subnet2:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet2
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      CidrBlock: !Select [1, !Ref SubnetCidrBlocks]
+      AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  RouteTableAssociation2:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet2
+    Properties:
+      SubnetId: !Ref Subnet2
+      RouteTableId: !Ref RouteTable
+
+  # ---------- Subnet 3 ----------
+  Subnet3:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet3
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      CidrBlock: !Select [2, !Ref SubnetCidrBlocks]
+      AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  RouteTableAssociation3:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet3
+    Properties:
+      SubnetId: !Ref Subnet3
+      RouteTableId: !Ref RouteTable
+
+  # ---------- Subnet 4 ----------
+  Subnet4:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet4
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      CidrBlock: !Select [3, !Ref SubnetCidrBlocks]
+      AvailabilityZone: !Select [3, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  RouteTableAssociation4:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet4
+    Properties:
+      SubnetId: !Ref Subnet4
+      RouteTableId: !Ref RouteTable
+
+  # ---------- Subnet 5 ----------
+  Subnet5:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet5
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      CidrBlock: !Select [4, !Ref SubnetCidrBlocks]
+      AvailabilityZone: !Select [4, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  RouteTableAssociation5:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet5
+    Properties:
+      SubnetId: !Ref Subnet5
+      RouteTableId: !Ref RouteTable
+
+  # ---------- Subnet 6 ----------
+  Subnet6:
+    Type: AWS::EC2::Subnet
+    Condition: CreateSubnet6
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      CidrBlock: !Select [5, !Ref SubnetCidrBlocks]
+      AvailabilityZone: !Select [5, !Ref AvailabilityZones]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  RouteTableAssociation6:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Condition: CreateSubnet6
+    Properties:
+      SubnetId: !Ref Subnet6
+      RouteTableId: !Ref RouteTable
+
+Outputs:
+  SubnetId1:
+    Condition: CreateSubnet1
+    Description: "ID of subnet 1"
+    Value: !Ref Subnet1
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetId1"
+  SubnetId2:
+    Condition: CreateSubnet2
+    Description: "ID of subnet 2"
+    Value: !Ref Subnet2
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetId2"
+  SubnetId3:
+    Condition: CreateSubnet3
+    Description: "ID of subnet 3"
+    Value: !Ref Subnet3
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetId3"
+  SubnetId4:
+    Condition: CreateSubnet4
+    Description: "ID of subnet 4"
+    Value: !Ref Subnet4
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetId4"
+  SubnetId5:
+    Condition: CreateSubnet5
+    Description: "ID of subnet 5"
+    Value: !Ref Subnet5
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetId5"
+  SubnetId6:
+    Condition: CreateSubnet6
+    Description: "ID of subnet 6"
+    Value: !Ref Subnet6
+    Export:
+      Name: !Sub "${AWS::StackName}-SubnetId6"
+
+  RouteTableId:
+    Description: "ID of the route table shared by all subnets"
+    Value: !Ref RouteTable
+    Export:
+      Name: !Sub "${AWS::StackName}-RouteTableId"
