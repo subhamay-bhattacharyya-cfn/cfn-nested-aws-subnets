@@ -1,15 +1,17 @@
 AWSTemplateFormatVersion: '2010-09-09'
 
-Description: 'Nested CloudFormation template that creates a set of subnets in an existing VPC, a single route table shared by all of the subnets (named VpcName-Qualifier), and a default route to an Internet Gateway when the qualifier is public'
+Description: 'Nested CloudFormation template that creates a set of subnets in an existing VPC. Public subnets share one route table with a default route to an Internet Gateway. Application subnets share one route table with a default route to a NAT gateway, or get one route table and NAT gateway per AZ when NatGatewayHighlyAvailable is true'
 
 Metadata:
   cfn-lint:
     config:
-      # VpcId defaults to "" and is only used when CiSuffix is empty, where the
-      # VpcIdRequiredWithoutCiSuffix rule forces a valid VPC ID. cfn-lint cannot
-      # see that guard, so it reports the empty default as an invalid VPC ID.
+      # VpcId and NatPublicSubnetIds default to "" and are only used when the
+      # VpcIdRequiredWithoutCiSuffix and NatPublicSubnetIdsRequiredForApplication
+      # rules force a valid value. cfn-lint cannot see those guards, so it reports
+      # the empty defaults as invalid IDs (W1030 for VPC IDs, W1035 for subnet IDs).
       ignore_checks:
         - W1030
+        - W1035
 
 Parameters:
   VpcId:
@@ -42,7 +44,7 @@ Parameters:
 
   SubnetQualifier:
     Type: String
-    Description: "Subnet qualifier. A value of 'public' adds a default route to the Internet Gateway"
+    Description: "Subnet qualifier. 'public' adds a default route to the Internet Gateway; 'application' adds a default route to a NAT gateway"
     AllowedValues:
       - public
       - application
@@ -71,12 +73,31 @@ Parameters:
     AllowedPattern: "^(\\d{1,3}\\.){3}\\d{1,3}/(1[6-9]|2[0-8])$"
     ConstraintDescription: "Must be a valid IPv4 CIDR block between /16 and /28"
 
+  NatGatewayHighlyAvailable:
+    Type: String
+    Default: "false"
+    AllowedValues:
+      - "true"
+      - "false"
+    Description: "Only used when SubnetQualifier is application. 'false' creates one NAT gateway in the first public subnet and routes all subnets through it. 'true' creates one NAT gateway per AZ, each with its own route table"
+
+  NatPublicSubnetIds:
+    Type: CommaDelimitedList
+    Default: ""
+    Description: "Comma-separated IDs of existing public subnets to host the NAT gateways. Required when SubnetQualifier is application. In HA mode, list one per subnet in the same order as AvailabilityZones"
+
 Conditions:
   IsPublic: !Equals [!Ref SubnetQualifier, public]
+  IsApplication: !Equals [!Ref SubnetQualifier, application]
 
   HasCiSuffix: !Not [!Equals [!Ref CiSuffix, '']]
   IsPublicCi: !And [!Condition IsPublic, !Condition HasCiSuffix]
   IsPublicExisting: !And [!Condition IsPublic, !Not [!Condition HasCiSuffix]]
+
+  IsNatHighlyAvailable: !Equals [!Ref NatGatewayHighlyAvailable, 'true']
+  AppSingleNat: !And [!Condition IsApplication, !Not [!Condition IsNatHighlyAvailable]]
+  AppHighlyAvailableNat: !And [!Condition IsApplication, !Condition IsNatHighlyAvailable]
+  UseSharedRouteTable: !Not [!Condition AppHighlyAvailableNat]
 
   CreateSubnet1: !Or
     - !Equals [!Ref SubnetCount, '1']
@@ -105,6 +126,13 @@ Conditions:
     - !Equals [!Ref SubnetCount, '6']
   CreateSubnet6: !Equals [!Ref SubnetCount, '6']
 
+  AzNat1: !And [!Condition AppHighlyAvailableNat, !Condition CreateSubnet1]
+  AzNat2: !And [!Condition AppHighlyAvailableNat, !Condition CreateSubnet2]
+  AzNat3: !And [!Condition AppHighlyAvailableNat, !Condition CreateSubnet3]
+  AzNat4: !And [!Condition AppHighlyAvailableNat, !Condition CreateSubnet4]
+  AzNat5: !And [!Condition AppHighlyAvailableNat, !Condition CreateSubnet5]
+  AzNat6: !And [!Condition AppHighlyAvailableNat, !Condition CreateSubnet6]
+
 Rules:
   VpcIdRequiredWithoutCiSuffix:
     RuleCondition: !Equals [!Ref CiSuffix, '']
@@ -117,6 +145,12 @@ Rules:
     Assertions:
       - Assert: !Equals [!Ref VpcId, '']
         AssertDescription: "VpcId must be empty when CiSuffix is set, because a VPC is created for CI"
+
+  NatPublicSubnetIdsRequiredForApplication:
+    RuleCondition: !Equals [!Ref SubnetQualifier, application]
+    Assertions:
+      - Assert: !Not [!Contains [!Ref NatPublicSubnetIds, '']]
+        AssertDescription: "NatPublicSubnetIds must list existing public subnet IDs when SubnetQualifier is application"
 
 Resources:
   # ---------- CI-only VPC, Internet Gateway and attachment ----------
@@ -147,13 +181,15 @@ Resources:
       InternetGatewayId: !Ref CiInternetGateway
 
   # ---------- Shared route table (created first) ----------
+  # Used by public subnets, and by application subnets when NatGatewayHighlyAvailable is false
   RouteTable:
     Type: AWS::EC2::RouteTable
+    Condition: UseSharedRouteTable
     Properties:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   # Default route to the CI-created Internet Gateway (waits for it to be attached)
   PublicRouteCi:
@@ -174,6 +210,34 @@ Resources:
       DestinationCidrBlock: 0.0.0.0/0
       GatewayId: !Ref InternetGatewayId
 
+  # ---------- Single NAT gateway (application, NatGatewayHighlyAvailable=false) ----------
+  NatEip:
+    Type: AWS::EC2::EIP
+    Condition: AppSingleNat
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat']]
+
+  NatGateway:
+    Type: AWS::EC2::NatGateway
+    Condition: AppSingleNat
+    Properties:
+      AllocationId: !GetAtt NatEip.AllocationId
+      SubnetId: !Select [0, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat']]
+
+  NatRoute:
+    Type: AWS::EC2::Route
+    Condition: AppSingleNat
+    Properties:
+      RouteTableId: !Ref RouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref NatGateway
+
   # ---------- Subnet 1 ----------
   Subnet1:
     Type: AWS::EC2::Subnet
@@ -184,14 +248,14 @@ Resources:
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   RouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: CreateSubnet1
     Properties:
       SubnetId: !Ref Subnet1
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !If [UseSharedRouteTable, !Ref RouteTable, !Ref AzRouteTable1]
 
   # ---------- Subnet 2 ----------
   Subnet2:
@@ -203,14 +267,14 @@ Resources:
       AvailabilityZone: !Select [1, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   RouteTableAssociation2:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: CreateSubnet2
     Properties:
       SubnetId: !Ref Subnet2
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !If [UseSharedRouteTable, !Ref RouteTable, !Ref AzRouteTable2]
 
   # ---------- Subnet 3 ----------
   Subnet3:
@@ -222,14 +286,14 @@ Resources:
       AvailabilityZone: !Select [2, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   RouteTableAssociation3:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: CreateSubnet3
     Properties:
       SubnetId: !Ref Subnet3
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !If [UseSharedRouteTable, !Ref RouteTable, !Ref AzRouteTable3]
 
   # ---------- Subnet 4 ----------
   Subnet4:
@@ -241,14 +305,14 @@ Resources:
       AvailabilityZone: !Select [3, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   RouteTableAssociation4:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: CreateSubnet4
     Properties:
       SubnetId: !Ref Subnet4
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !If [UseSharedRouteTable, !Ref RouteTable, !Ref AzRouteTable4]
 
   # ---------- Subnet 5 ----------
   Subnet5:
@@ -260,14 +324,14 @@ Resources:
       AvailabilityZone: !Select [4, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   RouteTableAssociation5:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: CreateSubnet5
     Properties:
       SubnetId: !Ref Subnet5
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !If [UseSharedRouteTable, !Ref RouteTable, !Ref AzRouteTable5]
 
   # ---------- Subnet 6 ----------
   Subnet6:
@@ -279,14 +343,231 @@ Resources:
       AvailabilityZone: !Select [5, !Ref AvailabilityZones]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
 
   RouteTableAssociation6:
     Type: AWS::EC2::SubnetRouteTableAssociation
     Condition: CreateSubnet6
     Properties:
       SubnetId: !Ref Subnet6
-      RouteTableId: !Ref RouteTable
+      RouteTableId: !If [UseSharedRouteTable, !Ref RouteTable, !Ref AzRouteTable6]
+
+  # ---------- Per-AZ NAT gateways and route tables (application, NatGatewayHighlyAvailable=true) ----------
+  AzEip1:
+    Type: AWS::EC2::EIP
+    Condition: AzNat1
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '1']]
+
+  AzNatGateway1:
+    Type: AWS::EC2::NatGateway
+    Condition: AzNat1
+    Properties:
+      AllocationId: !GetAtt AzEip1.AllocationId
+      SubnetId: !Select [0, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '1']]
+
+  AzRouteTable1:
+    Type: AWS::EC2::RouteTable
+    Condition: AzNat1
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  AzDefaultRoute1:
+    Type: AWS::EC2::Route
+    Condition: AzNat1
+    Properties:
+      RouteTableId: !Ref AzRouteTable1
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AzNatGateway1
+
+  AzEip2:
+    Type: AWS::EC2::EIP
+    Condition: AzNat2
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '2']]
+
+  AzNatGateway2:
+    Type: AWS::EC2::NatGateway
+    Condition: AzNat2
+    Properties:
+      AllocationId: !GetAtt AzEip2.AllocationId
+      SubnetId: !Select [1, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '2']]
+
+  AzRouteTable2:
+    Type: AWS::EC2::RouteTable
+    Condition: AzNat2
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  AzDefaultRoute2:
+    Type: AWS::EC2::Route
+    Condition: AzNat2
+    Properties:
+      RouteTableId: !Ref AzRouteTable2
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AzNatGateway2
+
+  AzEip3:
+    Type: AWS::EC2::EIP
+    Condition: AzNat3
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '3']]
+
+  AzNatGateway3:
+    Type: AWS::EC2::NatGateway
+    Condition: AzNat3
+    Properties:
+      AllocationId: !GetAtt AzEip3.AllocationId
+      SubnetId: !Select [2, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '3']]
+
+  AzRouteTable3:
+    Type: AWS::EC2::RouteTable
+    Condition: AzNat3
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  AzDefaultRoute3:
+    Type: AWS::EC2::Route
+    Condition: AzNat3
+    Properties:
+      RouteTableId: !Ref AzRouteTable3
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AzNatGateway3
+
+  AzEip4:
+    Type: AWS::EC2::EIP
+    Condition: AzNat4
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '4']]
+
+  AzNatGateway4:
+    Type: AWS::EC2::NatGateway
+    Condition: AzNat4
+    Properties:
+      AllocationId: !GetAtt AzEip4.AllocationId
+      SubnetId: !Select [3, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '4']]
+
+  AzRouteTable4:
+    Type: AWS::EC2::RouteTable
+    Condition: AzNat4
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  AzDefaultRoute4:
+    Type: AWS::EC2::Route
+    Condition: AzNat4
+    Properties:
+      RouteTableId: !Ref AzRouteTable4
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AzNatGateway4
+
+  AzEip5:
+    Type: AWS::EC2::EIP
+    Condition: AzNat5
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '5']]
+
+  AzNatGateway5:
+    Type: AWS::EC2::NatGateway
+    Condition: AzNat5
+    Properties:
+      AllocationId: !GetAtt AzEip5.AllocationId
+      SubnetId: !Select [4, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '5']]
+
+  AzRouteTable5:
+    Type: AWS::EC2::RouteTable
+    Condition: AzNat5
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  AzDefaultRoute5:
+    Type: AWS::EC2::Route
+    Condition: AzNat5
+    Properties:
+      RouteTableId: !Ref AzRouteTable5
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AzNatGateway5
+
+  AzEip6:
+    Type: AWS::EC2::EIP
+    Condition: AzNat6
+    Properties:
+      Domain: vpc
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '6']]
+
+  AzNatGateway6:
+    Type: AWS::EC2::NatGateway
+    Condition: AzNat6
+    Properties:
+      AllocationId: !GetAtt AzEip6.AllocationId
+      SubnetId: !Select [5, !Ref NatPublicSubnetIds]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '6']]
+
+  AzRouteTable6:
+    Type: AWS::EC2::RouteTable
+    Condition: AzNat6
+    Properties:
+      VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
+      Tags:
+        - Key: Name
+          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+
+  AzDefaultRoute6:
+    Type: AWS::EC2::Route
+    Condition: AzNat6
+    Properties:
+      RouteTableId: !Ref AzRouteTable6
+      DestinationCidrBlock: 0.0.0.0/0
+      NatGatewayId: !Ref AzNatGateway6
 
 Outputs:
   SubnetId1:
@@ -327,6 +608,7 @@ Outputs:
       Name: !Sub "${AWS::StackName}-SubnetId6"
 
   RouteTableId:
+    Condition: UseSharedRouteTable
     Description: "ID of the route table shared by all subnets"
     Value: !Ref RouteTable
     Export:
