@@ -1,4 +1,4 @@
-# CloudFormation Subnets, Route Table, Nat Gateway
+# # CloudFormation Nested Stack Template : Subnets / Route Table / Nat Gateway
 
 <!-- Row 1: Status - Most Important -->
 [![Release](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets/actions/workflows/release.yaml/badge.svg)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)&nbsp;[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)&nbsp;[![Issues](https://img.shields.io/github/issues/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets/issues)&nbsp;[![Last Commit](https://img.shields.io/github/last-commit/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets/commits)
@@ -15,7 +15,18 @@
 <!-- Row 5: Custom Metrics -->
 [![Custom Endpoint](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/ffab152fbc481ed1bc4755596a44cd00/raw/cfn-nested-aws-subnets.json)](https://gist.github.com/subhamay-bhattacharyya/ffab152fbc481ed1bc4755596a44cd00)
 
-This repository contains nested CloudFormation templates for deploying S3 buckets with security best practices and optional policy enforcement.
+## Subnet Template (cloudformation/template.yaml)
+
+This nested stack template creates 1 to 6 subnets in a VPC, along with the route tables and NAT gateways they need. It is designed to be invoked from a parent stack. Each subnet is placed in the AZ and uses the CIDR at the same position in `AvailabilityZones` and `SubnetCidrBlocks`.
+
+- **`public`** (`SubnetQualifier: public`): all subnets share one route table with a default route to an Internet Gateway (`InternetGatewayId`).
+- **`application`** (`SubnetQualifier: application`): default route to NAT gateway(s) hosted in existing public subnets (`NatPublicSubnetIds`).
+  - `NatGatewayHighlyAvailable: false` creates one NAT gateway that serves all subnets.
+  - `NatGatewayHighlyAvailable: true` creates one NAT gateway and one route table per AZ.
+- **`database`** (`SubnetQualifier: database`): subnets share one route table with no default route.
+- **CI mode** (`CiSuffix` set): a VPC (`CiVpcCidrBlock`) and an Internet Gateway are created for the stack. `VpcId` must be left empty.
+
+This repository also contains nested CloudFormation templates for deploying S3 buckets with security best practices and optional policy enforcement.
 
 ## Overview
 
