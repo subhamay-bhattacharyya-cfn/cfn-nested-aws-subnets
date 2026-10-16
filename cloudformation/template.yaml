@@ -246,6 +246,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       CidrBlock: !Select [0, !Ref SubnetCidrBlocks]
       AvailabilityZone: !Select [0, !Ref AvailabilityZones]
+      MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
           Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
@@ -265,6 +266,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       CidrBlock: !Select [1, !Ref SubnetCidrBlocks]
       AvailabilityZone: !Select [1, !Ref AvailabilityZones]
+      MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
           Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
@@ -284,6 +286,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       CidrBlock: !Select [2, !Ref SubnetCidrBlocks]
       AvailabilityZone: !Select [2, !Ref AvailabilityZones]
+      MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
           Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
@@ -303,6 +306,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       CidrBlock: !Select [3, !Ref SubnetCidrBlocks]
       AvailabilityZone: !Select [3, !Ref AvailabilityZones]
+      MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
           Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
@@ -322,6 +326,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       CidrBlock: !Select [4, !Ref SubnetCidrBlocks]
       AvailabilityZone: !Select [4, !Ref AvailabilityZones]
+      MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
           Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
@@ -341,6 +346,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       CidrBlock: !Select [5, !Ref SubnetCidrBlocks]
       AvailabilityZone: !Select [5, !Ref AvailabilityZones]
+      MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
           Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
