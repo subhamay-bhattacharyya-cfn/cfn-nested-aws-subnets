@@ -1,4 +1,4 @@
-# # CloudFormation Nested Stack Template : Subnets / Route Table / Nat Gateway
+# CloudFormation Nested Stack Template : Subnets / Route Table / Nat Gateway
 
 <!-- Row 1: Status - Most Important -->
 [![Release](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets/actions/workflows/release.yaml/badge.svg)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)&nbsp;[![GitHub Repo](https://img.shields.io/badge/GitHub-Repository-blue?logo=github)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)&nbsp;[![Issues](https://img.shields.io/github/issues/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets/issues)&nbsp;[![Last Commit](https://img.shields.io/github/last-commit/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets)](https://github.com/subhamay-bhattacharyya-cfn/cfn-nested-aws-subnets/commits)
@@ -15,244 +15,123 @@
 <!-- Row 5: Custom Metrics -->
 [![Custom Endpoint](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/bsubhamay/ffab152fbc481ed1bc4755596a44cd00/raw/cfn-nested-aws-subnets.json)](https://gist.github.com/subhamay-bhattacharyya/ffab152fbc481ed1bc4755596a44cd00)
 
-## Subnet Template (cloudformation/template.yaml)
-
-This nested stack template creates 1 to 6 subnets in a VPC, along with the route tables and NAT gateways they need. It is designed to be invoked from a parent stack. Each subnet is placed in the AZ and uses the CIDR at the same position in `AvailabilityZones` and `SubnetCidrBlocks`.
-
-- **`public`** (`SubnetQualifier: public`): all subnets share one route table with a default route to an Internet Gateway (`InternetGatewayId`).
-- **`application`** (`SubnetQualifier: application`): default route to NAT gateway(s) hosted in existing public subnets (`NatPublicSubnetIds`).
-  - `NatGatewayHighlyAvailable: false` creates one NAT gateway that serves all subnets.
-  - `NatGatewayHighlyAvailable: true` creates one NAT gateway and one route table per AZ.
-- **`database`** (`SubnetQualifier: database`): subnets share one route table with no default route.
-- **CI mode** (`CiSuffix` set): a VPC (`CiVpcCidrBlock`) and an Internet Gateway are created for the stack. `VpcId` must be left empty.
-
-This repository also contains nested CloudFormation templates for deploying S3 buckets with security best practices and optional policy enforcement.
-
 ## Overview
 
-This is a **nested stack template** designed to be invoked from a parent/root CloudFormation stack. Templates are stored in this repository and should be uploaded to an S3 bucket for reference by parent stacks.
+This repository contains a **nested stack template** (`cloudformation/template.yaml`) designed to be invoked from a parent/root CloudFormation stack. Upload the template to an S3 bucket and reference it with `AWS::CloudFormation::Stack` from the parent.
 
 ## Template Files
 
-### CloudFormation Templates
+- **`cloudformation/template.yaml`** — Nested template for subnets, route tables and NAT gateways in a VPC
+- **`cloudformation/parameters.json`** — Sample parameter values (`VpcName`, `SubnetQualifier`, `CiSuffix`) for CI deployment
+- **`cloudformation/stack-config.json`** — Stack name, template file and parameter file used for deployment
 
-- **`templates/s3-bucket.yaml`** — Nested template for S3 bucket creation (versioning, public access blocking)
-- **`templates/s3-bucket-policy.yaml`** — Optional nested template for S3 bucket policy (encryption enforcement, secure transport)
+## Subnet Template (cloudformation/template.yaml)
 
-### Parameter Files
+This nested stack template creates 1 to 6 subnets in a VPC, along with the route tables and NAT gateways they need. It is designed to be invoked from a parent stack. Subnet *N* is placed in the *N*th entry of `AvailabilityZones` and uses the *N*th entry of `SubnetCidrBlocks`.
 
-- **`parameters/parameters.json`** — Parameter values for development environment
+### Routing by SubnetQualifier
 
-## Template Features
+| SubnetQualifier | Subnet Name tag | Default route | Route table |
+| --------------- | --------------- | ------------- | ----------- |
+| `public` | `{VpcName}-public-{AZ}` | `0.0.0.0/0` to the Internet Gateway (`InternetGatewayId`, or the CI Internet Gateway in CI mode) | One shared route table |
+| `application` | `{VpcName}-application-pvt-{AZ}` | `0.0.0.0/0` to a NAT gateway in `NatPublicSubnetIds` | Shared, or one per AZ (see below) |
+| `private` | `{VpcName}-private-pvt-{AZ}` | None | One shared route table |
+| `database` | `{VpcName}-database-pvt-{AZ}` | None | One shared route table |
 
-### S3 Bucket Template (s3-bucket.yaml)
+- Public subnets get `MapPublicIpOnLaunch: true`. All other subnets get `false`.
+- When `CiSuffix` is set, `-{CiSuffix}` is appended to the Name tags.
 
-- ✅ Versioning enabled by default
-- ✅ Public Access Blocking
-- ✅ Smart bucket naming (project prefix, account ID, environment, region)
-- ✅ Optional CI suffix support
+### Application NAT Modes
 
-### S3 Bucket Policy Template (s3-bucket-policy.yaml)
+`NatGatewayHighlyAvailable` applies only to `SubnetQualifier: application`.
 
-- ✅ Encryption enforcement on uploads
-- ✅ Secure transport enforcement (HTTPS only)
-- ✅ Optional/conditional policy rules
+- **`false`** (default): one Elastic IP and one NAT gateway, created in `NatPublicSubnetIds[0]`. All application subnets share one route table that routes `0.0.0.0/0` through it.
+- **`true`**: one Elastic IP, NAT gateway and route table per AZ. NAT gateway *N* is created in `NatPublicSubnetIds[N-1]`, and application subnet *N* uses route table *N*. No shared route table is created.
 
-## Parameters
+### Deployment Modes
 
-### S3 Bucket Parameters
+- **Existing VPC** (`CiSuffix` empty): `VpcId` is required. `InternetGatewayId` is required for `public` subnets. `NatPublicSubnetIds` is required for `application` subnets.
+- **CI mode** (`CiSuffix` set): a VPC (`CiVpcCidrBlock`), an Internet Gateway and a public default route are created for the stack. `VpcId` must be left empty.
 
-| Parameter | Type | Default | Description |
-| ----------- | ------ | --------- | ------------- |
-| `ProjectName` | String | — | Project name to use as bucket prefix (required) |
-| `BucketBaseName` | String | `cfn-bucket` | Base name for S3 bucket |
-| `environment` | String | `devl` | Deployment environment (devl, stag, prod) |
-| `CiSuffix` | String | `""` | Optional CI suffix to append to bucket name |
-
-### S3 Bucket Policy Parameters
-
-**Generic (Standalone) Mode:**
-
-| Parameter | Type | Description |
-| ----------- | ------ | ------------- |
-| `BucketName` | String | Direct bucket name (use for any bucket) |
-
-**Integrated Mode (with bucket template):**
+### Subnet Template Parameters
 
 | Parameter | Type | Default | Description |
-| ----------- | ------ | --------- | ------------- |
-| `ProjectName` | String | — | Project name (must match bucket template) |
-| `BucketBaseName` | String | `cfn-bucket` | Base name (must match bucket template) |
-| `environment` | String | `devl` | Environment (must match bucket template) |
-| `CiSuffix` | String | `""` | CI suffix (must match bucket template) |
+| --------- | ---- | ------- | ----------- |
+| `VpcId` | String | `""` | Existing VPC ID. Required when `CiSuffix` is empty. Must be empty when `CiSuffix` is set |
+| `VpcName` | String | — | Value of the VPC Name tag, used as the prefix for Name tags (required) |
+| `AvailabilityZones` | CommaDelimitedList | `us-east-1a,us-east-1b` | One AZ per subnet |
+| `SubnetCidrBlocks` | CommaDelimitedList | `10.0.1.0/24,10.0.2.0/24` | One CIDR per subnet, in the same order as `AvailabilityZones` |
+| `SubnetCount` | Number | `2` | Number of subnets to create (1–6) |
+| `SubnetQualifier` | String | — | `public`, `private`, `application` or `database` (required) |
+| `InternetGatewayId` | String | `""` | Internet Gateway ID. Required when `SubnetQualifier` is `public` and `CiSuffix` is empty |
+| `CiSuffix` | String | `""` | Optional CI suffix (max 20 characters: lowercase letters, numbers, hyphens). Enables CI mode when set |
+| `CiVpcCidrBlock` | String | `10.0.0.0/16` | CIDR of the VPC created in CI mode (`/16` to `/28`) |
+| `NatGatewayHighlyAvailable` | String | `"false"` | `"true"` or `"false"`. See Application NAT Modes |
+| `NatPublicSubnetIds` | CommaDelimitedList | `""` | Existing public subnet IDs that host the NAT gateways. Required when `SubnetQualifier` is `application`. In HA mode, list one per subnet in the same order as `AvailabilityZones` |
 
-**Usage:** If `BucketName` is provided (non-empty), it takes precedence. Otherwise, the bucket name is constructed from ProjectName/BucketBaseName/environment/CiSuffix.
+### Subnet Template Outputs
 
-## Outputs
+Outputs are not exported. Parent stacks read them with `!GetAtt <NestedStack>.Outputs.<Name>`.
 
-### S3 Bucket Template Outputs
+| Output | Condition | Description |
+| ------ | --------- | ----------- |
+| `SubnetId1` to `SubnetId6` | `SubnetCount` ≥ N | ID of subnet N |
+| `SubnetArn1` to `SubnetArn6` | `SubnetCount` ≥ N | ARN of subnet N (`arn:{partition}:ec2:{region}:{account}:subnet/{id}`) |
+| `RouteTableId` | Shared route table exists | ID of the route table shared by all subnets. Not created for `application` with `NatGatewayHighlyAvailable: true` |
 
-- `S3BucketName` — S3 bucket name
-- `S3BucketArn` — S3 bucket ARN
+### Subnet Template Usage
 
-### S3 Bucket Policy Template Outputs
-
-- `BucketName` — Bucket name with policy applied
-- `PolicyStatus` — Policy application status (Applied)
-
-## Usage
-
-### 1. Upload Templates to S3
+Upload the template:
 
 ```bash
-aws s3 cp templates/s3-bucket.yaml s3://your-cfn-bucket/templates/s3-bucket.yaml
-aws s3 cp templates/s3-bucket-policy.yaml s3://your-cfn-bucket/templates/s3-bucket-policy.yaml
+aws s3 cp cloudformation/template.yaml s3://your-cfn-bucket/templates/subnets.yaml
 ```
 
-### 2. Reference from Parent Stack
-
-In your parent/root CloudFormation template:
+Reference it from a parent stack:
 
 ```yaml
-S3BucketNestedStack:
+SubnetsNestedStack:
   Type: AWS::CloudFormation::Stack
   Properties:
-    TemplateURL: https://s3.amazonaws.com/your-cfn-bucket/templates/s3-bucket.yaml
+    TemplateURL: https://s3.amazonaws.com/your-cfn-bucket/templates/subnets.yaml
     Parameters:
-      ProjectName: !Ref ProjectName
-      BucketBaseName: cfn-bucket
-      environment: !Ref Environment
-      CiSuffix: !Ref CiSuffix
-    Tags:
-      - Key: Environment
-        Value: !Ref Environment
-
-S3PolicyNestedStack:
-  Type: AWS::CloudFormation::Stack
-  DependsOn: S3BucketNestedStack
-  Properties:
-    TemplateURL: https://s3.amazonaws.com/your-cfn-bucket/templates/s3-bucket-policy.yaml
-    Parameters:
-      BucketName: !GetAtt S3BucketNestedStack.Outputs.S3BucketName
-      ProjectName: ""
-      BucketBaseName: cfn-bucket
-      environment: !Ref Environment
-      CiSuffix: !Ref CiSuffix
+      VpcId: !Ref VpcId
+      VpcName: my-vpc
+      AvailabilityZones: us-east-1a,us-east-1b
+      SubnetCidrBlocks: 10.0.1.0/24,10.0.2.0/24
+      SubnetCount: 2
+      SubnetQualifier: application
+      NatGatewayHighlyAvailable: "true"
+      NatPublicSubnetIds: subnet-0aaa1111,subnet-0bbb2222
     Tags:
       - Key: Environment
         Value: !Ref Environment
 
 Outputs:
-  BucketName:
-    Value: !GetAtt S3BucketNestedStack.Outputs.S3BucketName
-  BucketArn:
-    Value: !GetAtt S3BucketNestedStack.Outputs.S3BucketArn
+  SubnetId1: !GetAtt SubnetsNestedStack.Outputs.SubnetId1
+  SubnetArn1: !GetAtt SubnetsNestedStack.Outputs.SubnetArn1
 ```
 
-### 3. Deploy Using AWS CLI
-
-#### Option A: Deploy Bucket Only
+Deploy the template directly to test it:
 
 ```bash
-# Development (without CI prefix)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-dev \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/dev.json
-
-# Staging (without CI prefix)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-stag \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/staging.json
-
-# Production (without CI prefix)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-prod \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/prod.json
+aws cloudformation deploy \
+  --template-file cloudformation/template.yaml \
+  --stack-name subnets-dev \
+  --region us-east-1 \
+  --parameter-overrides \
+    VpcId=vpc-0123abcd \
+    VpcName=my-vpc \
+    SubnetQualifier=public \
+    InternetGatewayId=igw-0123abcd
 ```
-
-#### Option B: Deploy Bucket + Policy (Recommended)
-
-```bash
-# Deploy bucket first
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-dev \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters file://parameters/dev.json
-
-# Wait for bucket to be created
-aws cloudformation wait stack-create-complete --stack-name cfn-s3-bucket-dev
-
-# Get the bucket name from stack outputs
-BUCKET_NAME=$(aws cloudformation describe-stacks \
-  --stack-name cfn-s3-bucket-dev \
-  --query 'Stacks[0].Outputs[?OutputKey==`S3BucketName`].OutputValue' \
-  --output text)
-
-#### Using Integrated Mode (with bucket template parameters)
-
-```bash
-aws cloudformation create-stack \
-  --stack-name cfn-s3-policy-dev \
-  --template-body file://templates/s3-bucket-policy.yaml \
-  --parameters file://parameters/policy-dev.json
-```
-
-#### Using Generic Mode (standalone with direct bucket name)
-
-```bash
-aws cloudformation create-stack \
-  --stack-name cfn-s3-policy-dev \
-  --template-body file://templates/s3-bucket-policy.yaml \
-  --parameters \
-    ParameterKey=BucketName,ParameterValue=my-existing-bucket \
-    ParameterKey=ProjectName,ParameterValue=""
-```
-
-#### Option C: Deploy with CI Suffix
-
-```bash
-# Development with CI suffix (e.g., for GitLab CI)
-aws cloudformation create-stack \
-  --stack-name cfn-s3-bucket-dev-ci \
-  --template-body file://templates/s3-bucket.yaml \
-  --parameters \
-    ParameterKey=ProjectName,ParameterValue=myproject \
-    ParameterKey=BucketBaseName,ParameterValue=cfn-bucket \
-    ParameterKey=environment,ParameterValue=devl \
-    ParameterKey=CiSuffix,ParameterValue=$CI_PIPELINE_ID
-```
-
-## Bucket Naming Convention
-
-The templates generate bucket names using the following pattern:
-
-**Without CI Suffix:**
-
-```bash
-{ProjectName}-{BucketBaseName}-{AccountId}-{Environment}-{Region}
-```
-
-Example: `myproject-cfn-bucket-123456789012-devl-us-east-1`
-
-**With CI Suffix:**
-
-```bash
-{ProjectName}-{BucketBaseName}-{AccountId}-{Environment}-{Region}-{CiSuffix}
-```
-
-Example: `myproject-cfn-bucket-123456789012-devl-us-east-1-pipeline-12345`
 
 ## Best Practices Implemented
 
-- ✅ Versioning enabled by default
-- ✅ Public access blocked by default
-- ✅ Smart bucket naming with project prefix, account ID, environment, and region
-- ✅ Optional CI suffix support for unique deployments
-- ✅ Optional policy enforcement (encryption and secure transport)
-- ✅ Export values for cross-stack references
+- ✅ Private and database subnets have no default route to the internet or a NAT gateway
+- ✅ Parameter validation with `AllowedPattern`, `AllowedValues` and rules (`VpcId` required without `CiSuffix`, `NatPublicSubnetIds` required for `application`)
+- ✅ Optional highly available NAT gateway per AZ
+- ✅ Subnet outputs are not exported, so parent stacks wire values explicitly
 
 ## License
 

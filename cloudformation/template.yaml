@@ -581,42 +581,62 @@ Outputs:
     Condition: CreateSubnet1
     Description: "ID of subnet 1"
     Value: !Ref Subnet1
-    Export:
-      Name: !Sub "${AWS::StackName}-SubnetId1"
+  SubnetArn1:
+    Condition: CreateSubnet1
+    Description: "ARN of subnet 1"
+    Value: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet1}"
+
   SubnetId2:
     Condition: CreateSubnet2
     Description: "ID of subnet 2"
     Value: !Ref Subnet2
-    Export:
-      Name: !Sub "${AWS::StackName}-SubnetId2"
+
+  SubnetArn2:
+    Condition: CreateSubnet2
+    Description: "ARN of subnet 2"
+    Value: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet2}"
+
   SubnetId3:
     Condition: CreateSubnet3
     Description: "ID of subnet 3"
     Value: !Ref Subnet3
-    Export:
-      Name: !Sub "${AWS::StackName}-SubnetId3"
+
+  SubnetArn3:
+    Condition: CreateSubnet3
+    Description: "ARN of subnet 3"
+    Value: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet3}"
+
   SubnetId4:
     Condition: CreateSubnet4
     Description: "ID of subnet 4"
     Value: !Ref Subnet4
-    Export:
-      Name: !Sub "${AWS::StackName}-SubnetId4"
+
+  SubnetArn4:
+    Condition: CreateSubnet4
+    Description: "ARN of subnet 4"
+    Value: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet4}"
+
   SubnetId5:
     Condition: CreateSubnet5
     Description: "ID of subnet 5"
     Value: !Ref Subnet5
-    Export:
-      Name: !Sub "${AWS::StackName}-SubnetId5"
+
+  SubnetArn5:
+    Condition: CreateSubnet5
+    Description: "ARN of subnet 5"
+    Value: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet5}"
+
   SubnetId6:
     Condition: CreateSubnet6
     Description: "ID of subnet 6"
     Value: !Ref Subnet6
-    Export:
-      Name: !Sub "${AWS::StackName}-SubnetId6"
+
+  SubnetArn6:
+    Condition: CreateSubnet6
+    Description: "ARN of subnet 6"
+    Value: !Sub "arn:${AWS::Partition}:ec2:${AWS::Region}:${AWS::AccountId}:subnet/${Subnet6}"
 
   RouteTableId:
     Condition: UseSharedRouteTable
     Description: "ID of the route table shared by all subnets"
     Value: !Ref RouteTable
-    Export:
-      Name: !Sub "${AWS::StackName}-RouteTableId"
