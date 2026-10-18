@@ -47,9 +47,10 @@ Parameters:
     Description: "Subnet qualifier. 'public' adds a default route to the Internet Gateway; 'application' adds a default route to a NAT gateway"
     AllowedValues:
       - public
+      - private
       - application
       - database
-    ConstraintDescription: "Subnet qualifier must be one of: public, application, database"
+    ConstraintDescription: "Subnet qualifier must be one of: public, private, application, database"
 
   InternetGatewayId:
     Type: String
