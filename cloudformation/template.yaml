@@ -190,7 +190,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier]]
 
   # Default route to the CI-created Internet Gateway (waits for it to be attached)
   PublicRouteCi:
@@ -219,7 +219,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier]]
 
   NatGateway:
     Type: AWS::EC2::NatGateway
@@ -229,7 +229,7 @@ Resources:
       SubnetId: !Select [0, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier]]
 
   NatRoute:
     Type: AWS::EC2::Route
@@ -250,7 +250,7 @@ Resources:
       MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '1', !Select [0, !Ref AvailabilityZones]]]
 
   RouteTableAssociation1:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -270,7 +270,7 @@ Resources:
       MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '2', !Select [1, !Ref AvailabilityZones]]]
 
   RouteTableAssociation2:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -290,7 +290,7 @@ Resources:
       MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '3', !Select [2, !Ref AvailabilityZones]]]
 
   RouteTableAssociation3:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -310,7 +310,7 @@ Resources:
       MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '4', !Select [3, !Ref AvailabilityZones]]]
 
   RouteTableAssociation4:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -330,7 +330,7 @@ Resources:
       MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '5', !Select [4, !Ref AvailabilityZones]]]
 
   RouteTableAssociation5:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -350,7 +350,7 @@ Resources:
       MapPublicIpOnLaunch: !If [IsPublic, true, false]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !If [IsPublic, !Ref SubnetQualifier, !Sub "${SubnetQualifier}-pvt"], !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '6', !Select [5, !Ref AvailabilityZones]]]
 
   RouteTableAssociation6:
     Type: AWS::EC2::SubnetRouteTableAssociation
@@ -367,7 +367,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '1']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '1', !Select [0, !Ref AvailabilityZones]]]
 
   AzNatGateway1:
     Type: AWS::EC2::NatGateway
@@ -377,7 +377,7 @@ Resources:
       SubnetId: !Select [0, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '1']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '1', !Select [0, !Ref AvailabilityZones]]]
 
   AzRouteTable1:
     Type: AWS::EC2::RouteTable
@@ -386,7 +386,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [0, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '1', !Select [0, !Ref AvailabilityZones]]]
 
   AzDefaultRoute1:
     Type: AWS::EC2::Route
@@ -403,7 +403,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '2']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '2', !Select [1, !Ref AvailabilityZones]]]
 
   AzNatGateway2:
     Type: AWS::EC2::NatGateway
@@ -413,7 +413,7 @@ Resources:
       SubnetId: !Select [1, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '2']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '2', !Select [1, !Ref AvailabilityZones]]]
 
   AzRouteTable2:
     Type: AWS::EC2::RouteTable
@@ -422,7 +422,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [1, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '2', !Select [1, !Ref AvailabilityZones]]]
 
   AzDefaultRoute2:
     Type: AWS::EC2::Route
@@ -439,7 +439,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '3']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '3', !Select [2, !Ref AvailabilityZones]]]
 
   AzNatGateway3:
     Type: AWS::EC2::NatGateway
@@ -449,7 +449,7 @@ Resources:
       SubnetId: !Select [2, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '3']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '3', !Select [2, !Ref AvailabilityZones]]]
 
   AzRouteTable3:
     Type: AWS::EC2::RouteTable
@@ -458,7 +458,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [2, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '3', !Select [2, !Ref AvailabilityZones]]]
 
   AzDefaultRoute3:
     Type: AWS::EC2::Route
@@ -475,7 +475,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '4']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '4', !Select [3, !Ref AvailabilityZones]]]
 
   AzNatGateway4:
     Type: AWS::EC2::NatGateway
@@ -485,7 +485,7 @@ Resources:
       SubnetId: !Select [3, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '4']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '4', !Select [3, !Ref AvailabilityZones]]]
 
   AzRouteTable4:
     Type: AWS::EC2::RouteTable
@@ -494,7 +494,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [3, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '4', !Select [3, !Ref AvailabilityZones]]]
 
   AzDefaultRoute4:
     Type: AWS::EC2::Route
@@ -511,7 +511,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '5']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '5', !Select [4, !Ref AvailabilityZones]]]
 
   AzNatGateway5:
     Type: AWS::EC2::NatGateway
@@ -521,7 +521,7 @@ Resources:
       SubnetId: !Select [4, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '5']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '5', !Select [4, !Ref AvailabilityZones]]]
 
   AzRouteTable5:
     Type: AWS::EC2::RouteTable
@@ -530,7 +530,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [4, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '5', !Select [4, !Ref AvailabilityZones]]]
 
   AzDefaultRoute5:
     Type: AWS::EC2::Route
@@ -547,7 +547,7 @@ Resources:
       Domain: vpc
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '6']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '6', !Select [5, !Ref AvailabilityZones]]]
 
   AzNatGateway6:
     Type: AWS::EC2::NatGateway
@@ -557,7 +557,7 @@ Resources:
       SubnetId: !Select [5, !Ref NatPublicSubnetIds]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", 'nat', '6']]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '6', !Select [5, !Ref AvailabilityZones]]]
 
   AzRouteTable6:
     Type: AWS::EC2::RouteTable
@@ -566,7 +566,7 @@ Resources:
       VpcId: !If [HasCiSuffix, !Ref CiVpc, !Ref VpcId]
       Tags:
         - Key: Name
-          Value: !Join ['-', [!Ref VpcName, !Sub "${SubnetQualifier}-pvt", !Select [5, !Ref AvailabilityZones], !If [HasCiSuffix, !Ref CiSuffix, !Ref AWS::NoValue]]]
+          Value: !Join ['-', [!Ref VpcName, !Ref SubnetQualifier, '6', !Select [5, !Ref AvailabilityZones]]]
 
   AzDefaultRoute6:
     Type: AWS::EC2::Route
