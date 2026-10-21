@@ -240,6 +240,7 @@ Resources:
       NatGatewayId: !Ref NatGateway
 
   # ---------- Subnet 1 ----------
+  # Name tags for subnets and the per-AZ resources use <VpcName>-<SubnetQualifier>-<Sequence>-<AZ>
   Subnet1:
     Type: AWS::EC2::Subnet
     Condition: CreateSubnet1
